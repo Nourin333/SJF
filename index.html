@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SJF CPU Scheduler</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg: #0f172a;
+            --card: #1e293b;
+            --text: #f8fafc;
+            --success: #22c55e;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            margin: 0;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: var(--card);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 { text-align: center; color: var(--primary); }
+
+        /* Input Section */
+        .input-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .input-field {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label { margin-bottom: 5px; font-size: 0.9rem; color: #94a3b8; }
+
+        input {
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #334155;
+            background: #0f172a;
+            color: white;
+        }
+
+        /* Buttons */
+        .btn-container {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+
+        .btn-add { background: var(--primary); color: white; }
+        .btn-calc { background: var(--success); color: white; }
+        .btn-gantt { background: #eab308; color: #000; }
+        .btn-avg { background: #ec4899; color: white; }
+        button:hover { opacity: 0.8; }
+
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: center;
+            border-bottom: 1px solid #334155;
+        }
+
+        th { background: #334155; }
+
+        /* Gantt Chart */
+        #gantt-container {
+            margin-top: 30px;
+            display: none;
+        }
+
+        .gantt-wrapper {
+            display: flex;
+            overflow-x: auto;
+            padding: 20px 0;
+            border: 1px dashed #475569;
+        }
+
+        .gantt-box {
+            min-width: 60px;
+            height: 40px;
+            border: 1px solid white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            background: var(--primary);
+        }
+
+        .gantt-time {
+            position: absolute;
+            bottom: -25px;
+            left: 0;
+            font-size: 0.8rem;
+        }
+
+        .idle { background: #475569; }
+
+        /* Results */
+        .avg-results {
+            margin-top: 20px;
+            font-weight: bold;
+            display: none;
+            padding: 15px;
+            background: #334155;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>SJF CPU Scheduler (Non-Preemptive)</h1>
+
+    <div class="input-group">
+        <div class="input-field">
+            <label>Process ID</label>
+            <input type="text" id="pid" placeholder="e.g. P1">
+        </div>
+        <div class="input-field">
+            <label>Arrival Time</label>
+            <input type="number" id="arrival" min="0">
+        </div>
+        <div class="input-field">
+            <label>Burst Time</label>
+            <input type="number" id="burst" min="1">
+        </div>
+    </div>
+
+    <div class="btn-container">
+        <button class="btn-add" onclick="addProcess()">Add Process</button>
+        <button class="btn-calc" onclick="calculateSJF()">Calculate Scheduling</button>
+        <button class="btn-gantt" onclick="toggleGantt()">Show Gantt Chart</button>
+        <button class="btn-avg" onclick="calculateAverage()">Calculate Average</button>
+    </div>
+
+    <table id="processTable">
+        <thead>
+            <tr>
+                <th>Process ID</th>
+                <th>Arrival Time</th>
+                <th>Burst Time</th>
+                <th>Completion Time</th>
+                <th>Turnaround Time</th>
+                <th>Waiting Time</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+
+    <div id="gantt-container">
+        <h3>Gantt Chart</h3>
+        <div id="gantt-chart" class="gantt-wrapper"></div>
+    </div>
+
+    <div id="avg-results" class="avg-results"></div>
+</div>
+
+<script>
+    let processes = [];
+    let ganttData = [];
+
+    function addProcess() {
+        const pid = document.getElementById('pid').value;
+        const at = parseInt(document.getElementById('arrival').value);
+        const bt = parseInt(document.getElementById('burst').value);
+
+        if (!pid || isNaN(at) || isNaN(bt) || at < 0 || bt <= 0) {
+            alert("Please enter valid positive values.");
+            return;
+        }
+
+        processes.push({ pid, at, bt, ct: 0, tt: 0, wt: 0, completed: false });
+        updateTable();
+        
+        // Clear inputs
+        document.getElementById('pid').value = '';
+        document.getElementById('arrival').value = '';
+        document.getElementById('burst').value = '';
+    }
+
+    function updateTable() {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+        processes.forEach(p => {
+            tbody.innerHTML += `
+                <tr>
+                    <td>${p.pid}</td>
+                    <td>${p.at}</td>
+                    <td>${p.bt}</td>
+                    <td>${p.ct || '-'}</td>
+                    <td>${p.tt || '-'}</td>
+                    <td>${p.wt || '-'}</td>
+                </tr>
+            `;
+        });
+    }
+
+    function calculateSJF() {
+        if (processes.length === 0) return;
+
+        let currentTime = 0;
+        let completedCount = 0;
+        let n = processes.length;
+        ganttData = [];
+
+        // Reset completion status
+        processes.forEach(p => p.completed = false);
+
+        while (completedCount < n) {
+            // Find processes that have arrived and are not completed
+            let availableProcesses = processes.filter(p => p.at <= currentTime && !p.completed);
+
+            if (availableProcesses.length > 0) {
+                // SJF Logic: Pick process with smallest Burst Time
+                availableProcesses.sort((a, b) => a.bt - b.bt);
+                let currentProcess = availableProcesses[0];
+
+                // Gantt entry
+                ganttData.push({ pid: currentProcess.pid, start: currentTime, end: currentTime + currentProcess.bt });
+
+                currentTime += currentProcess.bt;
+                currentProcess.ct = currentTime;
+                currentProcess.tt = currentProcess.ct - currentProcess.at;
+                currentProcess.wt = currentProcess.tt - currentProcess.bt;
+                currentProcess.completed = true;
+                completedCount++;
+            } else {
+                // CPU Idle Time
+                let nextArrival = Math.min(...processes.filter(p => !p.completed).map(p => p.at));
+                ganttData.push({ pid: 'Idle', start: currentTime, end: nextArrival });
+                currentTime = nextArrival;
+            }
+        }
+        updateTable();
+    }
+
+    function toggleGantt() {
+        const container = document.getElementById('gantt-container');
+        const chart = document.getElementById('gantt-chart');
+        
+        if (ganttData.length === 0) {
+            alert("Please calculate scheduling first!");
+            return;
+        }
+
+        container.style.display = 'block';
+        chart.innerHTML = '';
+
+        ganttData.forEach((item, index) => {
+            const box = document.createElement('div');
+            box.className = `gantt-box ${item.pid === 'Idle' ? 'idle' : ''}`;
+            box.style.width = `${(item.end - item.start) * 30}px`; // Scaling
+            box.innerHTML = `<span>${item.pid}</span><span class="gantt-time">${item.start}</span>`;
+            
+            // Add final time for last box
+            if (index === ganttData.length - 1) {
+                const endCap = document.createElement('span');
+                endCap.className = 'gantt-time';
+                endCap.style.left = '100%';
+                endCap.innerText = item.end;
+                box.appendChild(endCap);
+            }
+            
+            chart.appendChild(box);
+        });
+    }
+
+    function calculateAverage() {
+        if (processes.length === 0 || processes[0].ct === 0) {
+            alert("Calculate scheduling first!");
+            return;
+        }
+
+        let totalTT = processes.reduce((acc, p) => acc + p.tt, 0);
+        let totalWT = processes.reduce((acc, p) => acc + p.wt, 0);
+        let avgTT = (totalTT / processes.length).toFixed(2);
+        let avgWT = (totalWT / processes.length).toFixed(2);
+
+        const resDiv = document.getElementById('avg-results');
+        resDiv.style.display = 'block';
+        resDiv.innerHTML = `
+            Average Turnaround Time: ${avgTT}ms <br>
+            Average Waiting Time: ${avgWT}ms
+        `;
+    }
+</script>
+
+</body>
+</html>
